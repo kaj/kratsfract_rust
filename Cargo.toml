@@ -5,3 +5,7 @@ authors = ["Rasmus Kaj <rasmus@krats.se>"]
 
 [dependencies]
 num = "*"
+gtk = "*"
+cairo-rs = "*"
+gdk = "*"
+time = "*"
