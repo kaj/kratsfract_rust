@@ -70,6 +70,20 @@ fn redraw(w : Widget, c : Context) -> Inhibit {
     Inhibit(true)
 }
 
+struct FractalWidget {
+    widget: gtk::DrawingArea
+}
+
+impl FractalWidget {
+    fn new() -> FractalWidget {
+        let area = gtk::DrawingArea::new().unwrap();
+        area.connect_draw(redraw);
+        FractalWidget {
+            widget: area
+        }
+    }
+}
+
 fn main() {
     gtk::init().ok();
     let window = gtk::Window::new(gtk::WindowType::TopLevel).unwrap();
@@ -77,9 +91,8 @@ fn main() {
     window.set_default_size(800, 600);
     window.set_window_position(gtk::WindowPosition::Center);
 
-    let area = gtk::DrawingArea::new().unwrap();
-    area.connect_draw(redraw);
-    window.add(&area);
+    let area = FractalWidget::new();
+    window.add(&area.widget);
     window.connect_delete_event(|_, _| {
         gtk::main_quit();
         Inhibit(true)
