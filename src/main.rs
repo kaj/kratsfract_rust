@@ -38,6 +38,26 @@ struct FractalWidget {
     center: Complex64
 }
 
+struct Transform {
+    o: Complex64,
+    s: f64
+}
+
+impl Transform {
+    fn new(center: Complex64, scale: f64, width: i32, height: i32)
+           -> Transform {
+        let s = scale / min(width, height) as f64;
+        Transform {
+            o: center - Complex64{re: s * width as f64,
+                                  im: s * height as f64},
+            s: s * 2.0
+        }
+    }
+    fn xform(&self, x: i32, y: i32) -> Complex64 {
+        Complex64{re: x as f64, im: y as f64}.scale(self.s) + self.o
+    }
+}
+
 impl FractalWidget {
     fn new() -> Arc<FractalWidget> {
         let area = gtk::DrawingArea::new().unwrap();
@@ -45,21 +65,17 @@ impl FractalWidget {
             widget: area,
             maxiter: 150,
             scale: 1.2,
-            center: Complex{re: -0.4, im: 0.0}
+            center: Complex{re: -0.5, im: 0.0}
         });
         let r2 = result.clone();
         result.widget.connect_draw(move |_w, c| r2.redraw(c));
         result
     }
 
-    fn xform(&self, x: i32, y: i32) -> Complex64 {
-        // Note: this is way to much of the same for each pixel.
-        // Precompute stuff!
-        let width = self.widget.get_allocated_width();
-        let height = self.widget.get_allocated_height();
-
-        let s = 2.0 * self.scale / min(width, height) as f64;
-        Complex64 {re: (x - width/2) as f64, im: (y - height/2) as f64}.scale(s) + self.center
+    fn get_xform(&self) -> Transform {
+        Transform::new(self.center, self.scale,
+                       self.widget.get_allocated_width(),
+                       self.widget.get_allocated_height())
     }
 
     fn redraw(&self, c : Context) -> Inhibit {
@@ -71,6 +87,7 @@ impl FractalWidget {
         println!("Should render {} x {} ...", width, height);
         let start = precise_time_ns();
         let zero = Complex {re: 0.0, im: 0.0};
+        let xform = self.get_xform();
         //let c = Complex {re: -0.75, im: 0.12};
 
         let n_channels = image.get_n_channels();
@@ -80,7 +97,7 @@ impl FractalWidget {
         for y in 0..height {
             for x in 0..width {
                 let pos = (y * rowstride + x * n_channels) as usize;
-                let i = julia(zero, self.xform(x, y), self.maxiter);
+                let i = julia(zero, xform.xform(x, y), self.maxiter);
                 data[pos] = i as u8;
                 data[pos + 1] = i as u8;
                 data[pos + 2] = i as u8;
