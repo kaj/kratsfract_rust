@@ -163,6 +163,13 @@ fn main() {
             key::Escape => gtk::main_quit(),
             key::plus => a1.lock().unwrap().inc_maxiter(),
             key::minus => a1.lock().unwrap().dec_maxiter(),
+            key::m => {
+                let mut a = a1.lock().unwrap();
+                let s = a.scale;
+                a.maxiter = 100;
+                a.zoom(Complex{re: -0.5, im: 0.0},
+                       1.2 / s);
+            },
             _ => ()
         }
         Inhibit(true)
