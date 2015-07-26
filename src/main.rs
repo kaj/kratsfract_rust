@@ -21,7 +21,7 @@ use std::sync::{Arc,Mutex};
 use std::cmp::{min,max};
 use num::Float;
 
-fn julia(z : Complex64, c : Complex64, max_i : u8) -> u8 {
+fn julia(z : Complex64, c : Complex64, max_i : u32) -> u32 {
     let mut zz = z.clone();
     for i in 0..max_i {
     	if zz.norm_sqr() > 4.0 {
@@ -35,7 +35,7 @@ fn julia(z : Complex64, c : Complex64, max_i : u8) -> u8 {
 
 struct FractalWidget {
     widget: gtk::DrawingArea,
-    maxiter: u8,
+    maxiter: u32,
     scale: f64,
     center: Complex64
 }
@@ -84,16 +84,14 @@ impl FractalWidget {
     }
     fn inc_maxiter(&mut self) {
         let ten = 10.0_f64;
-        self.maxiter =
-            min(self.maxiter + ten.powi(max(0, ((self.maxiter / 3) as f64).log10() as i32)) as u8,
-                255);
+        self.maxiter += ten.powi(max(0, ((self.maxiter / 3) as f64).log10() as i32)) as u32;
         println!("Maxiter is {}", self.maxiter);
         self.widget.queue_draw();
     }
     fn dec_maxiter(&mut self) {
         let ten = 10.0_f64;
         self.maxiter =
-            max(self.maxiter - ten.powi(max(0, ((self.maxiter / 3) as f64).log10() as i32)) as u8,
+            max(self.maxiter - ten.powi(max(0, ((self.maxiter / 3) as f64).log10() as i32)) as u32,
                 1);
         println!("Maxiter is {}", self.maxiter);
         self.widget.queue_draw();
@@ -124,9 +122,11 @@ impl FractalWidget {
             for x in 0..width {
                 let pos = (y * rowstride + x * n_channels) as usize;
                 let i = julia(zero, xform.xform(x, y), self.maxiter);
-                data[pos] = i as u8;
+                // Very simple palette ...
+                let r = (255.0 * i as f32 / self.maxiter as f32) as u8;
+                data[pos] = r;
                 data[pos + 1] = i as u8;
-                data[pos + 2] = i as u8;
+                data[pos + 2] = r;
             }
         }
         println!("Should render ... done in {} ms.",
