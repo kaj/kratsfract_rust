@@ -8,6 +8,7 @@ use cairo::Context;
 use gdk::ColorSpace;
 use gdk::Pixbuf;
 use gdk::cairo_interaction::ContextExt;
+use gdk::key;
 use gtk::signal::Inhibit;
 use gtk::signal::WidgetSignals;
 use gtk::traits::ContainerTrait;
@@ -16,8 +17,9 @@ use gtk::traits::WindowTrait;
 use num::complex::Complex64;
 use num::complex::Complex;
 use time::precise_time_ns;
-use std::sync::Arc;
-use std::cmp::min;
+use std::sync::{Arc,Mutex};
+use std::cmp::{min,max};
+use num::Float;
 
 fn julia(z : Complex64, c : Complex64, max_i : u8) -> u8 {
     let mut zz = z.clone();
@@ -56,22 +58,46 @@ impl Transform {
     fn xform(&self, x: i32, y: i32) -> Complex64 {
         Complex64{re: x as f64, im: y as f64}.scale(self.s) + self.o
     }
+    fn xformf(&self, x: f64, y: f64) -> Complex64 {
+        Complex64{re: x as f64, im: y as f64}.scale(self.s) + self.o
+    }
 }
 
 impl FractalWidget {
-    fn new() -> Arc<FractalWidget> {
+    fn new() -> Arc<Mutex<FractalWidget>> {
         let area = gtk::DrawingArea::new().unwrap();
-        let result = Arc::new(FractalWidget {
+        let result = Arc::new(Mutex::new(FractalWidget {
             widget: area,
             maxiter: 150,
             scale: 1.2,
             center: Complex{re: -0.5, im: 0.0}
-        });
+        }));
         let r2 = result.clone();
-        result.widget.connect_draw(move |_w, c| r2.redraw(c));
+        result.lock().unwrap().widget.connect_draw(move |_w, c| r2.lock().unwrap().redraw(c));
         result
     }
 
+    fn zoom(&mut self, z: Complex64, s: f64) {
+        self.center = z;
+        self.scale *= s;
+        self.widget.queue_draw();
+    }
+    fn inc_maxiter(&mut self) {
+        let ten = 10.0_f64;
+        self.maxiter =
+            min(self.maxiter + ten.powi(max(0, ((self.maxiter / 3) as f64).log10() as i32)) as u8,
+                255);
+        println!("Maxiter is {}", self.maxiter);
+        self.widget.queue_draw();
+    }
+    fn dec_maxiter(&mut self) {
+        let ten = 10.0_f64;
+        self.maxiter =
+            max(self.maxiter - ten.powi(max(0, ((self.maxiter / 3) as f64).log10() as i32)) as u8,
+                1);
+        println!("Maxiter is {}", self.maxiter);
+        self.widget.queue_draw();
+    }
     fn get_xform(&self) -> Transform {
         Transform::new(self.center, self.scale,
                        self.widget.get_allocated_width(),
@@ -121,9 +147,37 @@ fn main() {
     window.set_window_position(gtk::WindowPosition::Center);
 
     let area = FractalWidget::new();
-    window.add(&area.widget);
+    window.add(&area.lock().unwrap().widget);
     window.connect_delete_event(|_, _| {
         gtk::main_quit();
+        Inhibit(true)
+    });
+    window.connect_key_press_event(|_w, e| {
+        println!("Key pressed: {:?}", e._type);
+        Inhibit(true)
+    });
+    let a1 = area.clone();
+    window.connect_key_release_event(move |_w, e| {
+        println!("{:?}: {}", e._type, e.keyval);
+        match e.keyval {
+            key::Escape => gtk::main_quit(),
+            key::plus => a1.lock().unwrap().inc_maxiter(),
+            key::minus => a1.lock().unwrap().dec_maxiter(),
+            _ => ()
+        }
+        Inhibit(true)
+    });
+    let a2 = area.clone();
+    window.connect_button_release_event(move |_w, e| {
+        let mut a3 = a2.lock().unwrap();
+        let z = a3.get_xform().xformf(e.x, e.y);
+        println!("{:?} at {}", e._type, z);
+        match e.button {
+            1 => a3.zoom(z, 0.5),
+            2 => println!("should toggle julia"),
+            3 => a3.zoom(z, 2.0),
+            _ => ()
+        }
         Inhibit(true)
     });
 
