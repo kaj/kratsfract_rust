@@ -76,7 +76,10 @@ impl FractalWidget {
         result.lock().unwrap().widget.connect_draw(move |_w, c| r2.lock().unwrap().redraw(c));
         result
     }
-
+    fn get_title(&self) -> String {
+        format!("{} @ {} ±{:e} (max {})", "Mandelbrot",
+                self.center, self.scale, self.maxiter)
+    }
     fn zoom(&mut self, z: Complex64, s: f64) {
         self.center = z;
         self.scale *= s;
@@ -142,12 +145,15 @@ impl FractalWidget {
 fn main() {
     gtk::init().ok();
     let window = gtk::Window::new(gtk::WindowType::TopLevel).unwrap();
-    window.set_title("KratsFract");
     window.set_default_size(800, 600);
     window.set_window_position(gtk::WindowPosition::Center);
 
     let area = FractalWidget::new();
-    window.add(&area.lock().unwrap().widget);
+    {
+        let a = area.lock().unwrap();
+        window.add(&a.widget);
+        window.set_title(&a.get_title());
+    }
     window.connect_delete_event(|_, _| {
         gtk::main_quit();
         Inhibit(true)
@@ -157,34 +163,46 @@ fn main() {
         Inhibit(true)
     });
     let a1 = area.clone();
+    let w = window.clone();
     window.connect_key_release_event(move |_w, e| {
         println!("{:?}: {}", e._type, e.keyval);
         match e.keyval {
             key::Escape => gtk::main_quit(),
-            key::plus => a1.lock().unwrap().inc_maxiter(),
-            key::minus => a1.lock().unwrap().dec_maxiter(),
+            key::plus => {
+                let mut a = a1.lock().unwrap();
+                a.inc_maxiter();
+                w.set_title(&a.get_title());
+            }
+            key::minus => {
+                let mut a = a1.lock().unwrap();
+                a.dec_maxiter();
+                w.set_title(&a.get_title());
+            }
             key::m => {
                 let mut a = a1.lock().unwrap();
                 let s = a.scale;
                 a.maxiter = 100;
                 a.zoom(Complex{re: -0.5, im: 0.0},
                        1.2 / s);
+                w.set_title(&a.get_title());
             },
             _ => ()
         }
         Inhibit(true)
     });
     let a2 = area.clone();
+    let w2 = window.clone();
     window.connect_button_release_event(move |_w, e| {
-        let mut a3 = a2.lock().unwrap();
-        let z = a3.get_xform().xformf(e.x, e.y);
+        let mut a = a2.lock().unwrap();
+        let z = a.get_xform().xformf(e.x, e.y);
         println!("{:?} at {}", e._type, z);
         match e.button {
-            1 => a3.zoom(z, 0.5),
+            1 => a.zoom(z, 0.5),
             2 => println!("should toggle julia"),
-            3 => a3.zoom(z, 2.0),
+            3 => a.zoom(z, 2.0),
             _ => ()
         }
+        w2.set_title(&a.get_title());
         Inhibit(true)
     });
 
