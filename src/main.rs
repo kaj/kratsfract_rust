@@ -63,6 +63,23 @@ impl Transform {
     }
 }
 
+fn hsl2rgb(h: f32, s: f32, l: f32) -> (f32, f32, f32) {
+    let m2 = if l < 0.5 { l * (s+1.0) } else { l + s - l * s };
+    let m1 = l*2.0-m2;
+    let r = hue_to_rgb(m1, m2, h+1.0/3.0);
+    let g = hue_to_rgb(m1, m2, h    );
+    let b = hue_to_rgb(m1, m2, h-1.0/3.0);
+    (r, g, b)
+}
+
+fn hue_to_rgb(m1: f32, m2: f32, h: f32) -> f32 {
+    let h = if h<0.0 { h+1.0 } else if h>1.0 { h-1.0 } else { h };
+    if h*6.0<1.0 { m1+(m2-m1)*h*6.0 }
+    else if h*2.0<1.0 { m2 }
+    else if h*3.0<2.0 {  m1+(m2-m1)*(2.0/3.0-h)*6.0 }
+    else { m1 }
+}
+
 impl FractalWidget {
     fn new() -> Arc<Mutex<FractalWidget>> {
         let area = gtk::DrawingArea::new().unwrap();
@@ -126,10 +143,18 @@ impl FractalWidget {
                 let pos = (y * rowstride + x * n_channels) as usize;
                 let i = julia(zero, xform.xform(x, y), self.maxiter);
                 // Very simple palette ...
-                let r = (255.0 * i as f32 / self.maxiter as f32) as u8;
+                let (r, g, b) = {
+                    if i == 0 {
+                        (0, 0, 0)
+                    } else {
+                        let c = i as f32 / self.maxiter as f32;
+                        let (r, g, b) = hsl2rgb(c, 1.0, c+0.1);
+                        ((255.0 * r) as u8, (255.0*g) as u8, (255.0*b) as u8)
+                    }
+                };
                 data[pos] = r;
-                data[pos + 1] = i as u8;
-                data[pos + 2] = r;
+                data[pos + 1] = g;
+                data[pos + 2] = b;
             }
         }
         println!("Should render ... done in {} ms.",
