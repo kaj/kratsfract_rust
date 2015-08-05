@@ -20,6 +20,8 @@ use time::precise_time_ns;
 use std::sync::{Arc,Mutex};
 use std::cmp::{min,max};
 use num::Float;
+use std::thread;
+use std::sync::mpsc;
 
 fn julia(z : Complex64, c : Complex64, max_i : u32) -> u32 {
     let mut zz = z.clone();
@@ -31,13 +33,6 @@ fn julia(z : Complex64, c : Complex64, max_i : u32) -> u32 {
 	}
     }
     return 0;
-}
-
-struct FractalWidget {
-    widget: gtk::DrawingArea,
-    maxiter: u32,
-    scale: f64,
-    center: Complex64
 }
 
 struct Transform {
@@ -80,6 +75,106 @@ fn hue_to_rgb(m1: f32, m2: f32, h: f32) -> f32 {
     else { m1 }
 }
 
+/// A working or done rendering (image) of a given fractal.
+struct FractalRendering {
+    width: i32,
+    height: i32,
+    xpos: i32,
+    ypos: i32,
+    receiver: mpsc::Receiver<(u8, u8, u8)>,
+    image: gdk::Pixbuf
+}
+impl FractalRendering {
+    fn new(width: i32, height: i32, xform: Transform, maxiter: u32) -> FractalRendering {
+        //println!("Creating {}x{} rendering", width, height);
+        let (tx, rx) = mpsc::channel();
+        thread::spawn(move || {
+            let start = precise_time_ns();
+            let zero = Complex64{re: 0.0, im: 0.0};
+            for y in 0..height {
+                for x in 0..width {
+                    let i = julia(zero, xform.xform(x, y), maxiter);
+                    // Very simple palette ...
+                    let (r, g, b) = {
+                        if i == 0 {
+                            (0, 0, 0)
+                        } else {
+                            let c = i as f32 / maxiter as f32;
+                            let (r, g, b) = hsl2rgb(c, 1.0, c+0.1);
+                            ((255.0 * r) as u8, (255.0*g) as u8, (255.0*b) as u8)
+                        }
+                    };
+                    // TODO Stop rendering if listener is gone.
+                    if tx.send((r, g, b)).is_err() {
+                        println!("Stopping render after {} ms, receiver is gone",
+                                (precise_time_ns() - start) / 1000000);
+                        return;
+                    }
+                }
+            }
+            println!("Should render ... done in {} ms.",
+                     (precise_time_ns() - start) / 1000000);
+        });
+        FractalRendering {
+            width: width,
+            height: height,
+            xpos: 0,
+            ypos: 0,
+            receiver: rx,
+            image: unsafe { gdk::Pixbuf::new(ColorSpace::RGB, false, 8, width, height) }.unwrap()
+        }
+    }
+    /// Receive rendered pixels into the image.
+    /// Returns true if the image is completley rendered, false otherwise.
+    fn do_receive(&mut self) -> bool {
+        if (self.xpos < self.width) || (self.ypos < self.height) {
+            let n_channels = self.image.get_n_channels();
+            let rowstride = self.image.get_rowstride();
+            let data = unsafe { self.image.get_pixels() };
+            //println!("Receive from ({}, {}) of {}x{}",
+            //         self.xpos, self.ypos, self.width, self.height);
+            for y in self.ypos..self.height {
+                for x in self.xpos..self.width {
+                    match self.receiver.try_recv() {
+                        Ok((r, g, b)) => {
+                            let pos = (y * rowstride + x * n_channels) as usize;
+                            data[pos] = r;
+                            data[pos + 1] = g;
+                            data[pos + 2] = b;
+                        },
+                        _ => {
+                            //println!("Reached ({}, {}) of {}x{}",
+                            //         x, y, self.width, self.height);
+                            self.xpos = x;
+                            self.ypos = y;
+                            return false;
+                        }
+                    }
+                }
+                self.xpos = 0;
+            }
+            //println!("Full image received!");
+            self.xpos = self.width;
+            self.ypos = self.height;
+        }
+        true
+    }
+}
+impl Drop for FractalRendering {
+
+    fn drop(&mut self) {
+        //println!("Done with {}x{} rendering", self.width, self.height);
+    }
+}
+
+struct FractalWidget {
+    widget: gtk::DrawingArea,
+    maxiter: u32,
+    scale: f64,
+    center: Complex64,
+    rendering: Option<Mutex<FractalRendering>>
+}
+
 impl FractalWidget {
     fn new() -> Arc<Mutex<FractalWidget>> {
         let area = gtk::DrawingArea::new().unwrap();
@@ -87,7 +182,8 @@ impl FractalWidget {
             widget: area,
             maxiter: 150,
             scale: 1.2,
-            center: Complex{re: -0.5, im: 0.0}
+            center: Complex{re: -0.5, im: 0.0},
+            rendering: None
         }));
         let r2 = result.clone();
         result.lock().unwrap().widget.connect_draw(move |_w, c| r2.lock().unwrap().redraw(c));
@@ -100,12 +196,14 @@ impl FractalWidget {
     fn zoom(&mut self, z: Complex64, s: f64) {
         self.center = z;
         self.scale *= s;
+        self.rendering = None;
         self.widget.queue_draw();
     }
     fn inc_maxiter(&mut self) {
         let ten = 10.0_f64;
         self.maxiter += ten.powi(max(0, ((self.maxiter / 3) as f64).log10() as i32)) as u32;
         println!("Maxiter is {}", self.maxiter);
+        self.rendering = None;
         self.widget.queue_draw();
     }
     fn dec_maxiter(&mut self) {
@@ -114,6 +212,7 @@ impl FractalWidget {
             max(self.maxiter - ten.powi(max(0, ((self.maxiter / 3) as f64).log10() as i32)) as u32,
                 1);
         println!("Maxiter is {}", self.maxiter);
+        self.rendering = None;
         self.widget.queue_draw();
     }
     fn get_xform(&self) -> Transform {
@@ -122,47 +221,36 @@ impl FractalWidget {
                        self.widget.get_allocated_height())
     }
 
-    fn redraw(&self, c : Context) -> Inhibit {
-        let ref w = self.widget;
-        let width = w.get_allocated_width();
-        let height = w.get_allocated_height();
-        let image = unsafe { gdk::Pixbuf::new(ColorSpace::RGB, false, 8, width, height) }.unwrap();
-
-        println!("Should render {} x {} ...", width, height);
-        let start = precise_time_ns();
-        let zero = Complex {re: 0.0, im: 0.0};
-        let xform = self.get_xform();
-        //let c = Complex {re: -0.75, im: 0.12};
-
-        let n_channels = image.get_n_channels();
-        let rowstride = image.get_rowstride();
-        let data = unsafe { image.get_pixels() };
-
-        for y in 0..height {
-            for x in 0..width {
-                let pos = (y * rowstride + x * n_channels) as usize;
-                let i = julia(zero, xform.xform(x, y), self.maxiter);
-                // Very simple palette ...
-                let (r, g, b) = {
-                    if i == 0 {
-                        (0, 0, 0)
-                    } else {
-                        let c = i as f32 / self.maxiter as f32;
-                        let (r, g, b) = hsl2rgb(c, 1.0, c+0.1);
-                        ((255.0 * r) as u8, (255.0*g) as u8, (255.0*b) as u8)
-                    }
-                };
-                data[pos] = r;
-                data[pos + 1] = g;
-                data[pos + 2] = b;
+    fn redraw(&mut self, c : Context) -> Inhibit {
+        //let start = precise_time_ns();
+        //println!("redraw ...");
+        let (rendered_width, rendered_height) =
+            match self.rendering {
+                Some(ref r) => { let rl = r.lock().unwrap(); (rl.width, rl.height) },
+                _ =>       (0, 0)
+            };
+        let width = self.widget.get_allocated_width();
+        let height = self.widget.get_allocated_height();
+        if rendered_width != width || rendered_height != height {
+            self.rendering = Some(Mutex::new(
+                FractalRendering::new(width, height, self.get_xform(), self.maxiter)));
+        };
+        match self.rendering {
+            Some(ref r) => {
+                let mut renderer = r.lock().unwrap();
+                let done = renderer.do_receive();
+                let ref image = renderer.image;
+                c.set_source_pixbuf(&image, 0.0, 0.0);
+                c.rectangle(0.0, 0.0, image.get_width() as f64, image.get_height() as f64);
+                c.fill();
+                if !done {
+                    self.widget.queue_draw();
+                }
             }
-        }
-        println!("Should render ... done in {} ms.",
-                 (precise_time_ns() - start) / 1000000);
-
-        c.set_source_pixbuf(&image, 0.0, 0.0);
-        c.rectangle(0.0, 0.0, image.get_width() as f64, image.get_height() as f64);
-        c.fill();
+            _ => ()
+        };
+        //println!("redraw ... done in {} ms.",
+        //         (precise_time_ns() - start) / 1000000);
         Inhibit(true)
     }
 }
