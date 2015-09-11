@@ -9,5 +9,5 @@ matrix:
 addons:
   apt:
     packages:
-      libgtk-3-dev
-      libffi-dev
+      - libgtk-3-dev
+      - libffi-dev
