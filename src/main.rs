@@ -5,10 +5,10 @@ extern crate num;
 extern crate time;
 
 use cairo::Context;
-use gdk::ColorSpace;
+use gdk::Colorspace;
 use gdk::Pixbuf;
 use gdk::cairo_interaction::ContextExt;
-use gdk::key;
+use gdk::enums::key;
 use gtk::signal::Inhibit;
 use gtk::signal::WidgetSignals;
 use gtk::traits::ContainerTrait;
@@ -25,6 +25,8 @@ use std::sync::mpsc;
 
 mod basicfractals;
 use ::basicfractals::{Fractal, Mandelbrot, Julia};
+
+const GTK_COLORSPACE_RGB: Colorspace = 0; // TODO Import somewhere?
 
 struct Transform {
     o: Complex64,
@@ -109,7 +111,7 @@ impl FractalRendering {
             xpos: 0,
             ypos: 0,
             receiver: rx,
-            image: unsafe { gdk::Pixbuf::new(ColorSpace::RGB, false, 8, width, height) }.unwrap()
+            image: unsafe { gdk::Pixbuf::new(GTK_COLORSPACE_RGB, false, 8, width, height) }.unwrap()
         }
     }
     /// Receive rendered pixels into the image.
@@ -255,7 +257,7 @@ impl FractalWidget {
 
 fn main() {
     gtk::init().ok();
-    let window = gtk::Window::new(gtk::WindowType::TopLevel).unwrap();
+    let window = gtk::Window::new(gtk::WindowType::Toplevel).unwrap();
     window.set_default_size(800, 600);
     window.set_window_position(gtk::WindowPosition::Center);
 
@@ -277,7 +279,8 @@ fn main() {
     let w = window.clone();
     window.connect_key_release_event(move |_w, e| {
         println!("{:?}: {}", e._type, e.keyval);
-        match e.keyval {
+        // How strange; e.keyval is an u32, but the key constants are i32.
+        match e.keyval as i32 {
             key::Escape => gtk::main_quit(),
             key::plus => {
                 let mut a = a1.lock().unwrap();
