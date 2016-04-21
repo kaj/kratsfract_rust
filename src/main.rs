@@ -1,19 +1,20 @@
 extern crate cairo;
 extern crate gdk;
+extern crate gdk_pixbuf;
 extern crate gtk;
 extern crate num;
 extern crate time;
 
 use cairo::Context;
-use gdk::Colorspace;
-use gdk::Pixbuf;
-use gdk::cairo_interaction::ContextExt;
 use gdk::enums::key;
-use gtk::signal::Inhibit;
-use gtk::signal::WidgetSignals;
-use gtk::traits::ContainerTrait;
-use gtk::traits::WidgetTrait;
-use gtk::traits::WindowTrait;
+use gdk::enums::modifier_type::{Button1Mask, Button2Mask, Button3Mask};
+use gdk::prelude::ContextExt;
+use gdk_pixbuf::{Colorspace, Pixbuf};
+use gtk::ContainerExt;
+use gtk::Inhibit;
+use gtk::WidgetExt;
+use gtk::WidgetSignals;
+use gtk::WindowExt;
 use num::complex::Complex64;
 use num::complex::Complex;
 use time::precise_time_ns;
@@ -75,7 +76,7 @@ struct FractalRendering {
     xpos: i32,
     ypos: i32,
     receiver: mpsc::Receiver<(u8, u8, u8)>,
-    image: gdk::Pixbuf
+    image: Pixbuf
 }
 impl FractalRendering {
     fn new(width: i32, height: i32, xform: Transform,
@@ -111,7 +112,7 @@ impl FractalRendering {
             xpos: 0,
             ypos: 0,
             receiver: rx,
-            image: unsafe { gdk::Pixbuf::new(GTK_COLORSPACE_RGB, false, 8, width, height) }.unwrap()
+            image: unsafe { Pixbuf::new(GTK_COLORSPACE_RGB, false, 8, width, height) }.unwrap()
         }
     }
     /// Receive rendered pixels into the image.
@@ -167,7 +168,7 @@ struct FractalWidget {
 
 impl FractalWidget {
     fn new() -> Arc<Mutex<FractalWidget>> {
-        let area = gtk::DrawingArea::new().unwrap();
+        let area = gtk::DrawingArea::new();
         let result = Arc::new(Mutex::new(FractalWidget {
             widget: area,
             fractal: Mandelbrot::new(150),
@@ -220,7 +221,7 @@ impl FractalWidget {
                        self.widget.get_allocated_height())
     }
 
-    fn redraw(&mut self, c : Context) -> Inhibit {
+    fn redraw(&mut self, c : &Context) -> Inhibit {
         //let start = precise_time_ns();
         //println!("redraw ...");
         let (rendered_width, rendered_height) =
@@ -257,9 +258,9 @@ impl FractalWidget {
 
 fn main() {
     gtk::init().ok();
-    let window = gtk::Window::new(gtk::WindowType::Toplevel).unwrap();
+    let window = gtk::Window::new(gtk::WindowType::Toplevel);
     window.set_default_size(800, 600);
-    window.set_window_position(gtk::WindowPosition::Center);
+    // TODO window.set_window_position(gtk::WindowPosition::Center);
 
     let area = FractalWidget::new();
     {
@@ -272,15 +273,14 @@ fn main() {
         Inhibit(true)
     });
     window.connect_key_press_event(|_w, e| {
-        println!("Key pressed: {:?}", e._type);
+        println!("Key pressed: {:?}", e.get_keyval());
         Inhibit(true)
     });
     let a1 = area.clone();
     let w = window.clone();
     window.connect_key_release_event(move |_w, e| {
-        println!("{:?}: {}", e._type, e.keyval);
-        // How strange; e.keyval is an u32, but the key constants are i32.
-        match e.keyval as i32 {
+        println!("{:?}: {}", e.get_event_type(), e.get_keyval());
+        match e.get_keyval() {
             key::Escape => gtk::main_quit(),
             key::plus => {
                 let mut a = a1.lock().unwrap();
@@ -308,12 +308,15 @@ fn main() {
     let w2 = window.clone();
     window.connect_button_release_event(move |_w, e| {
         let mut a = a2.lock().unwrap();
-        let z = a.get_xform().xformf(e.x, e.y);
-        println!("{:?} at {}", e._type, z);
-        match e.button {
-            1 => a.zoom(z, 0.5),
-            2 => a.julia(z),
-            3 => a.zoom(z, 2.0),
+        let (x, y) = e.get_position();
+        let z = a.get_xform().xformf(x, y);
+        let state = e.get_state();
+        println!("Got b button release: {:?} {}", state, state.bits());
+        println!("{:?} at {}", e.get_event_type(), z);
+        match state {
+            Button1Mask => a.zoom(z, 0.5),
+            Button2Mask => a.julia(z),
+            Button3Mask => a.zoom(z, 2.0),
             _ => ()
         }
         w2.set_title(&a.get_title());
