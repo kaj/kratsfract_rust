@@ -235,10 +235,9 @@ impl FractalWidget {
             self.rendering = Some(Mutex::new(
                 FractalRendering::new(width, height, self.get_xform(),
                                       self.fractal.clone())));
-        };
-        match self.rendering {
-            Some(ref r) => {
-                let mut renderer = r.lock().unwrap();
+        }
+        if let Some(ref r) = self.rendering {
+            if let Ok(mut renderer) = r.lock() {
                 let done = renderer.do_receive();
                 let ref image = renderer.image;
                 c.set_source_pixbuf(&image, 0.0, 0.0);
@@ -248,23 +247,21 @@ impl FractalWidget {
                     self.widget.queue_draw();
                 }
             }
-            _ => ()
-        };
+        }
         //println!("redraw ... done in {} ms.",
         //         (precise_time_ns() - start) / 1000000);
         Inhibit(true)
     }
 }
 
+#[allow(non_upper_case_globals)]
 fn main() {
     gtk::init().ok();
     let window = gtk::Window::new(gtk::WindowType::Toplevel);
     window.set_default_size(800, 600);
-    // TODO window.set_window_position(gtk::WindowPosition::Center);
 
     let area = FractalWidget::new();
-    {
-        let a = area.lock().unwrap();
+    if let Ok(a) = area.lock() {
         window.add(&a.widget);
         window.set_title(&a.get_title());
     }
@@ -282,18 +279,15 @@ fn main() {
         println!("{:?}: {}", e.get_event_type(), e.get_keyval());
         match e.get_keyval() {
             key::Escape => gtk::main_quit(),
-            key::plus => {
-                let mut a = a1.lock().unwrap();
+            key::plus => if let Ok(mut a) = a1.lock() {
                 a.inc_maxiter();
                 w.set_title(&a.get_title());
-            }
-            key::minus => {
-                let mut a = a1.lock().unwrap();
+            },
+            key::minus => if let Ok(mut a) = a1.lock() {
                 a.dec_maxiter();
                 w.set_title(&a.get_title());
-            }
-            key::m => {
-                let mut a = a1.lock().unwrap();
+            },
+            key::m => if let Ok(mut a) = a1.lock() {
                 let s = a.scale;
                 a.zoom(Complex{re: -0.5, im: 0.0},
                        1.2 / s);
@@ -307,19 +301,20 @@ fn main() {
     let a2 = area.clone();
     let w2 = window.clone();
     window.connect_button_release_event(move |_w, e| {
-        let mut a = a2.lock().unwrap();
-        let (x, y) = e.get_position();
-        let z = a.get_xform().xformf(x, y);
-        let state = e.get_state();
-        println!("Got b button release: {:?} {}", state, state.bits());
-        println!("{:?} at {}", e.get_event_type(), z);
-        match state {
-            Button1Mask => a.zoom(z, 0.5),
-            Button2Mask => a.julia(z),
-            Button3Mask => a.zoom(z, 2.0),
-            _ => ()
+        if let Ok(mut a) = a2.lock() {
+            let (x, y) = e.get_position();
+            let z = a.get_xform().xformf(x, y);
+            let state = e.get_state();
+            println!("Got b button release: {:?} {}", state, state.bits());
+            println!("{:?} at {}", e.get_event_type(), z);
+            match state {
+                Button1Mask => a.zoom(z, 0.5),
+                Button2Mask => a.julia(z),
+                Button3Mask => a.zoom(z, 2.0),
+                _ => ()
+            }
+            w2.set_title(&a.get_title());
         }
-        w2.set_title(&a.get_title());
         Inhibit(true)
     });
 
