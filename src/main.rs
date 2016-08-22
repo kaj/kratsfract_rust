@@ -25,6 +25,9 @@ use std::sync::mpsc;
 mod basicfractals;
 use ::basicfractals::{Fractal, Mandelbrot, Julia};
 
+mod palette;
+use palette::Palette;
+
 const GTK_COLORSPACE_RGB: Colorspace = 0; // TODO Import somewhere?
 
 struct Transform {
@@ -50,23 +53,6 @@ impl Transform {
     }
 }
 
-fn hsl2rgb(h: f32, s: f32, l: f32) -> (f32, f32, f32) {
-    let m2 = if l < 0.5 { l * (s+1.0) } else { l + s - l * s };
-    let m1 = l*2.0-m2;
-    let r = hue_to_rgb(m1, m2, h+1.0/3.0);
-    let g = hue_to_rgb(m1, m2, h    );
-    let b = hue_to_rgb(m1, m2, h-1.0/3.0);
-    (r, g, b)
-}
-
-fn hue_to_rgb(m1: f32, m2: f32, h: f32) -> f32 {
-    let h = if h<0.0 { h+1.0 } else if h>1.0 { h-1.0 } else { h };
-    if h*6.0<1.0 { m1+(m2-m1)*h*6.0 }
-    else if h*2.0<1.0 { m2 }
-    else if h*3.0<2.0 {  m1+(m2-m1)*(2.0/3.0-h)*6.0 }
-    else { m1 }
-}
-
 /// A working or done rendering (image) of a given fractal.
 struct FractalRendering {
     width: i32,
@@ -76,25 +62,17 @@ struct FractalRendering {
     receiver: mpsc::Receiver<(u8, u8, u8)>,
     image: Pixbuf
 }
+
 impl FractalRendering {
     fn new(width: i32, height: i32, xform: Transform,
-           fractal: Arc<Box<Fractal>>) -> FractalRendering {
+           fractal: Arc<Box<Fractal>>, palette: Palette) -> FractalRendering {
         let (tx, rx) = mpsc::channel();
         thread::spawn(move || {
             let start = precise_time_ns();
             for y in 0..height {
                 for x in 0..width {
                     let i = fractal.calc(xform.xform(x, y));
-                    // Very simple palette ...
-                    let (r, g, b) = {
-                        if i == 0.0 {
-                            (0, 0, 0)
-                        } else {
-                            let (r, g, b) = hsl2rgb(i, 1.0, i+0.1);
-                            ((255.0 * r) as u8, (255.0*g) as u8, (255.0*b) as u8)
-                        }
-                    };
-                    if tx.send((r, g, b)).is_err() {
+                    if tx.send(palette.color(i)).is_err() {
                         println!("Stopping render after {} ms, receiver is gone",
                                 (precise_time_ns() - start) / 1000000);
                         return;
@@ -159,6 +137,7 @@ impl Drop for FractalRendering {
 struct FractalWidget {
     widget: gtk::DrawingArea,
     fractal: Arc<Box<Fractal>>,
+    palette: Palette,
     scale: f64,
     center: Complex64,
     rendering: Option<Mutex<FractalRendering>>
@@ -170,29 +149,32 @@ impl FractalWidget {
         let result = Arc::new(Mutex::new(FractalWidget {
             widget: area,
             fractal: Mandelbrot::new(150),
+            palette: Palette::default(),
             scale: 1.2,
             center: Complex{re: -0.5, im: 0.0},
             rendering: None
         }));
         let r2 = result.clone();
-        result.lock().unwrap().widget.connect_draw(move |_w, c| r2.lock().unwrap().redraw(c));
+        result.lock().unwrap().widget.connect_draw(move |_w, c| r2.lock().unwrap().expose(c));
         result
     }
     fn get_title(&self) -> String {
         format!("{} @ {} ±{:e}", self.fractal, self.center, self.scale)
     }
+    fn redraw(&mut self) {
+        self.rendering = None;
+        self.widget.queue_draw();
+    }
     fn zoom(&mut self, z: Complex64, s: f64) {
         self.center = z;
         self.scale *= s;
-        self.rendering = None;
-        self.widget.queue_draw();
+        self.redraw();
     }
     fn julia(&mut self, z: Complex64) {
         self.fractal = Julia::new(z, 500);
         self.center = Complex64{re: 0.0, im: 0.0};
         self.scale = 1.2;
-        self.rendering = None;
-        self.widget.queue_draw();
+        self.redraw();
     }
     fn inc_maxiter(&mut self) {
         self.fractal = self.fractal.change_maxiter(&|i| {
@@ -200,8 +182,7 @@ impl FractalWidget {
             i + ten.powi(max(0, ((i / 3) as f64).log10() as i32)) as u32
         });
         println!("Fractal is {}", self.fractal);
-        self.rendering = None;
-        self.widget.queue_draw();
+        self.redraw();
     }
     fn dec_maxiter(&mut self) {
         self.fractal = self.fractal.change_maxiter(&|i| {
@@ -210,8 +191,7 @@ impl FractalWidget {
                 1)
         });
         println!("Fractal is {}", self.fractal);
-        self.rendering = None;
-        self.widget.queue_draw();
+        self.redraw();
     }
     fn get_xform(&self) -> Transform {
         Transform::new(self.center, self.scale,
@@ -219,7 +199,7 @@ impl FractalWidget {
                        self.widget.get_allocated_height())
     }
 
-    fn redraw(&mut self, c : &Context) -> Inhibit {
+    fn expose(&mut self, c : &Context) -> Inhibit {
         //let start = precise_time_ns();
         //println!("redraw ...");
         let (rendered_width, rendered_height) =
@@ -232,7 +212,8 @@ impl FractalWidget {
         if rendered_width != width || rendered_height != height {
             self.rendering = Some(Mutex::new(
                 FractalRendering::new(width, height, self.get_xform(),
-                                      self.fractal.clone())));
+                                      self.fractal.clone(),
+                                      self.palette.clone())));
         }
         if let Some(ref r) = self.rendering {
             if let Ok(mut renderer) = r.lock() {
@@ -284,6 +265,10 @@ fn main() {
             key::minus => if let Ok(mut a) = a1.lock() {
                 a.dec_maxiter();
                 w.set_title(&a.get_title());
+            },
+            key::c => if let Ok(mut a) = a1.lock() {
+                a.palette.cycle();
+                a.redraw();
             },
             key::m => if let Ok(mut a) = a1.lock() {
                 let s = a.scale;
