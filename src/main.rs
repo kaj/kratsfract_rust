@@ -7,20 +7,18 @@ extern crate time;
 
 use cairo::Context;
 use gdk::enums::key;
-use gdk::enums::modifier_type::{Button1Mask, Button2Mask, Button3Mask};
 use gdk::prelude::ContextExt;
 use gdk_pixbuf::{Colorspace, Pixbuf};
 use gtk::ContainerExt;
 use gtk::Inhibit;
 use gtk::WidgetExt;
-use gtk::WidgetSignals;
+use gdk::{BUTTON1_MASK, BUTTON2_MASK, BUTTON3_MASK};
 use gtk::WindowExt;
 use num::complex::Complex64;
 use num::complex::Complex;
 use time::precise_time_ns;
 use std::sync::{Arc,Mutex};
 use std::cmp::{min,max};
-use num::Float;
 use std::thread;
 use std::sync::mpsc;
 
@@ -308,9 +306,9 @@ fn main() {
             println!("Got b button release: {:?} {}", state, state.bits());
             println!("{:?} at {}", e.get_event_type(), z);
             match state {
-                Button1Mask => a.zoom(z, 0.5),
-                Button2Mask => a.julia(z),
-                Button3Mask => a.zoom(z, 2.0),
+                BUTTON1_MASK => a.zoom(z, 0.5),
+                BUTTON2_MASK => a.julia(z),
+                BUTTON3_MASK => a.zoom(z, 2.0),
                 _ => ()
             }
             w2.set_title(&a.get_title());
