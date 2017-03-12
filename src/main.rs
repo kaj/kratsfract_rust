@@ -5,51 +5,55 @@ extern crate gtk;
 extern crate num;
 extern crate time;
 
+mod basicfractals;
+mod palette;
+
+use basicfractals::{Fractal, Julia, Mandelbrot};
 use cairo::Context;
+use gdk::{BUTTON1_MASK, BUTTON2_MASK, BUTTON3_MASK};
 use gdk::enums::key;
 use gdk::prelude::ContextExt;
 use gdk_pixbuf::{Colorspace, Pixbuf};
 use gtk::ContainerExt;
 use gtk::Inhibit;
 use gtk::WidgetExt;
-use gdk::{BUTTON1_MASK, BUTTON2_MASK, BUTTON3_MASK};
 use gtk::WindowExt;
-use num::complex::Complex64;
-use num::complex::Complex;
-use time::precise_time_ns;
-use std::sync::{Arc,Mutex};
-use std::cmp::{min,max};
-use std::thread;
-use std::sync::mpsc;
-
-mod basicfractals;
-use ::basicfractals::{Fractal, Mandelbrot, Julia};
-
-mod palette;
+use num::Zero;
+use num::complex::{Complex, Complex64};
 use palette::Palette;
+use std::cmp::{max, min};
+use std::sync::{Arc, Mutex, mpsc};
+use std::thread;
+use time::precise_time_ns;
 
 const GTK_COLORSPACE_RGB: Colorspace = 0; // TODO Import somewhere?
 
 struct Transform {
     o: Complex64,
-    s: f64
+    s: f64,
 }
 
 impl Transform {
-    fn new(center: Complex64, scale: f64, width: i32, height: i32)
+    fn new(center: Complex64,
+           scale: f64,
+           width: i32,
+           height: i32)
            -> Transform {
         let s = scale / min(width, height) as f64;
+        let change = Complex64 {
+            re: s * width as f64,
+            im: s * height as f64,
+        };
         Transform {
-            o: center - Complex64{re: s * width as f64,
-                                  im: s * height as f64},
-            s: s * 2.0
+            o: center - change,
+            s: s * 2.0,
         }
     }
     fn xform(&self, x: i32, y: i32) -> Complex64 {
-        Complex64{re: x as f64, im: y as f64}.scale(self.s) + self.o
+        self.xformf(x as f64, y as f64)
     }
     fn xformf(&self, x: f64, y: f64) -> Complex64 {
-        Complex64{re: x as f64, im: y as f64}.scale(self.s) + self.o
+        Complex64 { re: x, im: y }.scale(self.s) + self.o
     }
 }
 
@@ -60,12 +64,16 @@ struct FractalRendering {
     xpos: i32,
     ypos: i32,
     receiver: mpsc::Receiver<(u8, u8, u8)>,
-    image: Pixbuf
+    image: Pixbuf,
 }
 
 impl FractalRendering {
-    fn new(width: i32, height: i32, xform: Transform,
-           fractal: Arc<Box<Fractal>>, palette: Palette) -> FractalRendering {
+    fn new(width: i32,
+           height: i32,
+           xform: Transform,
+           fractal: Arc<Box<Fractal>>,
+           palette: Palette)
+           -> FractalRendering {
         let (tx, rx) = mpsc::channel();
         thread::spawn(move || {
             let start = precise_time_ns();
@@ -73,8 +81,8 @@ impl FractalRendering {
                 for x in 0..width {
                     let i = fractal.calc(xform.xform(x, y));
                     if tx.send(palette.color(i)).is_err() {
-                        println!("Stopping render after {} ms, receiver is gone",
-                                (precise_time_ns() - start) / 1000000);
+                        println!("Stopping render after {} ms, receiver gone",
+                                 (precise_time_ns() - start) / 1000_000);
                         return;
                     }
                 }
@@ -88,7 +96,10 @@ impl FractalRendering {
             xpos: 0,
             ypos: 0,
             receiver: rx,
-            image: unsafe { Pixbuf::new(GTK_COLORSPACE_RGB, false, 8, width, height) }.unwrap()
+            image: unsafe {
+                    Pixbuf::new(GTK_COLORSPACE_RGB, false, 8, width, height)
+                }
+                .unwrap(),
         }
     }
     /// Receive rendered pixels into the image.
@@ -108,7 +119,7 @@ impl FractalRendering {
                             data[pos] = r;
                             data[pos + 1] = g;
                             data[pos + 2] = b;
-                        },
+                        }
                         _ => {
                             //println!("Reached ({}, {}) of {}x{}",
                             //         x, y, self.width, self.height);
@@ -128,7 +139,6 @@ impl FractalRendering {
     }
 }
 impl Drop for FractalRendering {
-
     fn drop(&mut self) {
         //println!("Done with {}x{} rendering", self.width, self.height);
     }
@@ -140,22 +150,26 @@ struct FractalWidget {
     palette: Palette,
     scale: f64,
     center: Complex64,
-    rendering: Option<Mutex<FractalRendering>>
+    rendering: Option<Mutex<FractalRendering>>,
 }
 
 impl FractalWidget {
     fn new() -> Arc<Mutex<FractalWidget>> {
         let area = gtk::DrawingArea::new();
         let result = Arc::new(Mutex::new(FractalWidget {
-            widget: area,
-            fractal: Mandelbrot::new(150),
-            palette: Palette::default(),
-            scale: 1.2,
-            center: Complex{re: -0.5, im: 0.0},
-            rendering: None
-        }));
+                                             widget: area,
+                                             fractal: Mandelbrot::new(150),
+                                             palette: Palette::default(),
+                                             scale: 1.2,
+                                             center: Complex::from(-0.5),
+                                             rendering: None,
+                                         }));
         let r2 = result.clone();
-        result.lock().unwrap().widget.connect_draw(move |_w, c| r2.lock().unwrap().expose(c));
+        result.lock().unwrap().widget.connect_draw(move |_w, c| {
+                                                       r2.lock()
+                                                           .unwrap()
+                                                           .expose(c)
+                                                   });
         result
     }
     fn get_title(&self) -> String {
@@ -172,15 +186,16 @@ impl FractalWidget {
     }
     fn julia(&mut self, z: Complex64) {
         self.fractal = Julia::new(z, 500);
-        self.center = Complex64{re: 0.0, im: 0.0};
+        self.center = Complex64::zero();
         self.scale = 1.2;
         self.redraw();
     }
     fn inc_maxiter(&mut self) {
-        self.fractal = self.fractal.change_maxiter(&|i| {
-            let ten = 10.0_f64;
-            i + ten.powi(max(0, ((i / 3) as f64).log10() as i32)) as u32
-        });
+        self.fractal =
+            self.fractal.change_maxiter(&|i| {
+                let ten = 10.0_f64;
+                i + ten.powi(max(0, ((i / 3) as f64).log10() as i32)) as u32
+            });
         println!("Fractal is {}", self.fractal);
         self.redraw();
     }
@@ -194,33 +209,41 @@ impl FractalWidget {
         self.redraw();
     }
     fn get_xform(&self) -> Transform {
-        Transform::new(self.center, self.scale,
+        Transform::new(self.center,
+                       self.scale,
                        self.widget.get_allocated_width(),
                        self.widget.get_allocated_height())
     }
 
-    fn expose(&mut self, c : &Context) -> Inhibit {
+    fn expose(&mut self, c: &Context) -> Inhibit {
         //let start = precise_time_ns();
         //println!("redraw ...");
-        let (rendered_width, rendered_height) =
-            match self.rendering {
-                Some(ref r) => { let rl = r.lock().unwrap(); (rl.width, rl.height) },
-                _ =>       (0, 0)
-            };
+        let (rendered_width, rendered_height) = match self.rendering {
+            Some(ref r) => {
+                let r = r.lock().unwrap();
+                (r.width, r.height)
+            }
+            _ => (0, 0),
+        };
         let width = self.widget.get_allocated_width();
         let height = self.widget.get_allocated_height();
         if rendered_width != width || rendered_height != height {
-            self.rendering = Some(Mutex::new(
-                FractalRendering::new(width, height, self.get_xform(),
-                                      self.fractal.clone(),
-                                      self.palette.clone())));
+            self.rendering =
+                Some(Mutex::new(FractalRendering::new(width,
+                                                      height,
+                                                      self.get_xform(),
+                                                      self.fractal.clone(),
+                                                      self.palette.clone())));
         }
         if let Some(ref r) = self.rendering {
             if let Ok(mut renderer) = r.lock() {
                 let done = renderer.do_receive();
                 let ref image = renderer.image;
                 c.set_source_pixbuf(&image, 0.0, 0.0);
-                c.rectangle(0.0, 0.0, image.get_width() as f64, image.get_height() as f64);
+                c.rectangle(0.0,
+                            0.0,
+                            image.get_width() as f64,
+                            image.get_height() as f64);
                 c.fill();
                 if !done {
                     self.widget.queue_draw();
@@ -245,39 +268,47 @@ fn main() {
         window.set_title(&a.get_title());
     }
     window.connect_delete_event(|_, _| {
-        gtk::main_quit();
-        Inhibit(true)
-    });
+                                    gtk::main_quit();
+                                    Inhibit(true)
+                                });
     window.connect_key_press_event(|_w, e| {
-        println!("Key pressed: {:?}", e.get_keyval());
-        Inhibit(true)
-    });
+                                       println!("Key pressed: {:?}",
+                                                e.get_keyval());
+                                       Inhibit(true)
+                                   });
     let a1 = area.clone();
     let w = window.clone();
     window.connect_key_release_event(move |_w, e| {
         println!("{:?}: {}", e.get_event_type(), e.get_keyval());
         match e.get_keyval() {
             key::Escape => gtk::main_quit(),
-            key::plus => if let Ok(mut a) = a1.lock() {
-                a.inc_maxiter();
-                w.set_title(&a.get_title());
-            },
-            key::minus => if let Ok(mut a) = a1.lock() {
-                a.dec_maxiter();
-                w.set_title(&a.get_title());
-            },
-            key::c => if let Ok(mut a) = a1.lock() {
-                a.palette.cycle();
-                a.redraw();
-            },
-            key::m => if let Ok(mut a) = a1.lock() {
-                let s = a.scale;
-                a.zoom(Complex{re: -0.5, im: 0.0},
-                       1.2 / s);
-                a.fractal = Mandelbrot::new(150);
-                w.set_title(&a.get_title());
-            },
-            _ => ()
+            key::plus => {
+                if let Ok(mut a) = a1.lock() {
+                    a.inc_maxiter();
+                    w.set_title(&a.get_title());
+                }
+            }
+            key::minus => {
+                if let Ok(mut a) = a1.lock() {
+                    a.dec_maxiter();
+                    w.set_title(&a.get_title());
+                }
+            }
+            key::c => {
+                if let Ok(mut a) = a1.lock() {
+                    a.palette.cycle();
+                    a.redraw();
+                }
+            }
+            key::m => {
+                if let Ok(mut a) = a1.lock() {
+                    let s = a.scale;
+                    a.zoom(Complex::from(-0.5), 1.2 / s);
+                    a.fractal = Mandelbrot::new(150);
+                    w.set_title(&a.get_title());
+                }
+            }
+            _ => (),
         }
         Inhibit(true)
     });
@@ -294,7 +325,7 @@ fn main() {
                 BUTTON1_MASK => a.zoom(z, 0.5),
                 BUTTON2_MASK => a.julia(z),
                 BUTTON3_MASK => a.zoom(z, 2.0),
-                _ => ()
+                _ => (),
             }
             w2.set_title(&a.get_title());
         }

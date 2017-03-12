@@ -4,7 +4,7 @@ use num::complex::Complex64;
 use std::fmt::{self, Display, Formatter};
 use std::sync::Arc;
 
-pub trait Fractal : Send + Sync + Display {
+pub trait Fractal: Send + Sync + Display {
     /// Calculate the fractal value at a specific point on the complex plane.
     /// return a normalized value
     fn calc(&self, z: Complex64) -> f32;
@@ -12,37 +12,34 @@ pub trait Fractal : Send + Sync + Display {
     fn change_maxiter(&self, &Fn(u32) -> u32) -> Arc<Box<Fractal>>;
 }
 
-fn julia(z : Complex64, c : Complex64, max_i : u32) -> u32 {
+fn julia(z: Complex64, c: Complex64, max_i: u32) -> u32 {
     let mut zz = z.clone();
     for i in 0..max_i {
-    	if zz.norm_sqr() > 4.0 {
-	    return i;
-	} else {
-	   zz = zz * zz + c;
-	}
+        if zz.norm_sqr() > 4.0 {
+            return i;
+        } else {
+            zz = zz * zz + c;
+        }
     }
     return 0;
 }
 
 pub struct Mandelbrot {
-    maxiter: u32
+    maxiter: u32,
 }
+
 impl Mandelbrot {
     pub fn new(maxiter: u32) -> Arc<Box<Fractal>> {
-        Arc::new(Box::new(Mandelbrot {
-            maxiter: maxiter
-        }))
+        Arc::new(Box::new(Mandelbrot { maxiter: maxiter }))
     }
 }
 impl Fractal for Mandelbrot {
     fn calc(&self, z: Complex64) -> f32 {
-        let zero = Complex64{re: 0.0, im: 0.0};
+        let zero = Complex64 { re: 0.0, im: 0.0 };
         julia(zero, z, self.maxiter) as f32 / self.maxiter as f32
     }
     fn change_maxiter(&self, f: &Fn(u32) -> u32) -> Arc<Box<Fractal>> {
-        Arc::new(Box::new(Mandelbrot {
-            maxiter: f(self.maxiter)
-        }))
+        Arc::new(Box::new(Mandelbrot { maxiter: f(self.maxiter) }))
     }
 }
 impl Display for Mandelbrot {
@@ -53,14 +50,14 @@ impl Display for Mandelbrot {
 
 pub struct Julia {
     c: Complex64,
-    maxiter: u32
+    maxiter: u32,
 }
 impl Julia {
     pub fn new(c: Complex64, maxiter: u32) -> Arc<Box<Fractal>> {
         Arc::new(Box::new(Julia {
-            c: c,
-            maxiter: maxiter
-        }))
+                              c: c,
+                              maxiter: maxiter,
+                          }))
     }
 }
 impl Fractal for Julia {
@@ -69,9 +66,9 @@ impl Fractal for Julia {
     }
     fn change_maxiter(&self, f: &Fn(u32) -> u32) -> Arc<Box<Fractal>> {
         Arc::new(Box::new(Julia {
-            c: self.c,
-            maxiter: f(self.maxiter)
-        }))
+                              c: self.c,
+                              maxiter: f(self.maxiter),
+                          }))
     }
 }
 
