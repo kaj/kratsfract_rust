@@ -13,15 +13,15 @@ pub trait Fractal: Send + Sync + Display {
 }
 
 fn julia(z: Complex64, c: Complex64, max_i: u32) -> u32 {
-    let mut zz = z.clone();
+    let mut z = z;
     for i in 0..max_i {
-        if zz.norm_sqr() > 4.0 {
+        if z.norm_sqr() > 4.0 {
             return i;
         } else {
-            zz = zz * zz + c;
+            z = z * z + c;
         }
     }
-    return 0;
+    0
 }
 
 pub struct Mandelbrot {

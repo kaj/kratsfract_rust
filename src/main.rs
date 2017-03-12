@@ -234,12 +234,12 @@ impl FractalWidget {
                                                       self.get_xform(),
                                                       self.fractal.clone(),
                                                       self.palette.clone())));
-        }
-        if let Some(ref r) = self.rendering {
+            self.widget.queue_draw();
+        } else if let Some(ref r) = self.rendering {
             if let Ok(mut renderer) = r.lock() {
                 let done = renderer.do_receive();
-                let ref image = renderer.image;
-                c.set_source_pixbuf(&image, 0.0, 0.0);
+                let image = &renderer.image;
+                c.set_source_pixbuf(image, 0.0, 0.0);
                 c.rectangle(0.0,
                             0.0,
                             image.get_width() as f64,
