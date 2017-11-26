@@ -3,7 +3,6 @@ extern crate gdk;
 extern crate gdk_pixbuf;
 extern crate gtk;
 extern crate num;
-extern crate time;
 
 mod basicfractals;
 mod palette;
@@ -22,15 +21,32 @@ use num::Zero;
 use num::complex::{Complex, Complex64};
 use palette::Palette;
 use std::cmp::{max, min};
+use std::fmt;
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
-use time::precise_time_ns;
+use std::time::{Duration, Instant};
 
 const GTK_COLORSPACE_RGB: Colorspace = 0; // TODO Import somewhere?
 
 struct Transform {
     o: Complex64,
     s: f64,
+}
+
+struct PT(Duration);
+impl fmt::Display for PT {
+    fn fmt(&self, out: &mut fmt::Formatter) -> fmt::Result {
+        match (self.0.as_secs(), self.0.subsec_nanos()) {
+            (0, ns) => {
+                if ns < 5_000_000 {
+                    write!(out, "{} µs", ns / 1_000)
+                } else {
+                    write!(out, "{} ms", ns / 1_000_000)
+                }
+            }
+            (s, ns) => write!(out, "{}.{:03} s", s, ns / 1_000_000),
+        }
+    }
 }
 
 impl Transform {
@@ -76,19 +92,18 @@ impl FractalRendering {
            -> FractalRendering {
         let (tx, rx) = mpsc::channel();
         thread::spawn(move || {
-            let start = precise_time_ns();
+            let start = Instant::now();
             for y in 0..height {
                 for x in 0..width {
                     let i = fractal.calc(xform.xform(x, y));
                     if tx.send(palette.color(i)).is_err() {
-                        println!("Stopping render after {} ms, receiver gone",
-                                 (precise_time_ns() - start) / 1000_000);
+                        println!("Stopping render after {}, receiver gone",
+                                 PT{0:start.elapsed()});
                         return;
                     }
                 }
             }
-            println!("Should render ... done in {} ms.",
-                     (precise_time_ns() - start) / 1000000);
+            println!("Should render ... done in {}.", PT{0:start.elapsed()});
         });
         FractalRendering {
             width: width,
