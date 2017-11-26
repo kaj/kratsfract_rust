@@ -54,10 +54,10 @@ impl Transform {
            width: i32,
            height: i32)
            -> Transform {
-        let s = scale / min(width, height) as f64;
+        let s = scale / f64::from(min(width, height));
         let change = Complex64 {
-            re: s * width as f64,
-            im: s * height as f64,
+            re: s * f64::from(width),
+            im: s * f64::from(height),
         };
         Transform {
             o: center - change,
@@ -65,7 +65,7 @@ impl Transform {
         }
     }
     fn xform(&self, x: i32, y: i32) -> Complex64 {
-        self.xformf(x as f64, y as f64)
+        self.xformf(f64::from(x), f64::from(y))
     }
     fn xformf(&self, x: f64, y: f64) -> Complex64 {
         Complex64 { re: x, im: y }.scale(self.s) + self.o
@@ -178,7 +178,7 @@ impl FractalWidget {
                                              center: Complex::from(-0.5),
                                              rendering: None,
                                          }));
-        let r2 = result.clone();
+        let r2 = Arc::clone(&result);
         result.lock().unwrap().widget.connect_draw(move |_w, c| {
                                                        r2.lock()
                                                            .unwrap()
@@ -208,7 +208,7 @@ impl FractalWidget {
         self.fractal =
             self.fractal.change_maxiter(&|i| {
                 let ten = 10.0_f64;
-                i + ten.powi(max(0, ((i / 3) as f64).log10() as i32)) as u32
+                i + ten.powi(max(0, f64::from(i / 3).log10() as i32)) as u32
             });
         println!("Fractal is {}", self.fractal);
         self.redraw();
@@ -216,7 +216,7 @@ impl FractalWidget {
     fn dec_maxiter(&mut self) {
         self.fractal = self.fractal.change_maxiter(&|i| {
             let ten = 10.0_f64;
-            max(i - ten.powi(max(0, ((i / 3) as f64).log10() as i32)) as u32,
+            max(i - ten.powi(max(0, f64::from(i / 3).log10() as i32)) as u32,
                 1)
         });
         println!("Fractal is {}", self.fractal);
@@ -246,7 +246,7 @@ impl FractalWidget {
                 Some(Mutex::new(FractalRendering::new(width,
                                                       height,
                                                       self.get_xform(),
-                                                      self.fractal.clone(),
+                                                      Arc::clone(&self.fractal),
                                                       self.palette.clone())));
             self.widget.queue_draw();
         } else if let Some(ref r) = self.rendering {
@@ -256,8 +256,8 @@ impl FractalWidget {
                 c.set_source_pixbuf(image, 0.0, 0.0);
                 c.rectangle(0.0,
                             0.0,
-                            image.get_width() as f64,
-                            image.get_height() as f64);
+                            f64::from(image.get_width()),
+                            f64::from(image.get_height()));
                 c.fill();
                 if !done {
                     self.widget.queue_draw();
@@ -290,7 +290,7 @@ fn main() {
                                                 e.get_keyval());
                                        Inhibit(true)
                                    });
-    let a1 = area.clone();
+    let a1 = Arc::clone(&area);
     let w = window.clone();
     window.connect_key_release_event(move |_w, e| {
         println!("{:?}: {}", e.get_event_type(), e.get_keyval());
@@ -326,7 +326,7 @@ fn main() {
         }
         Inhibit(true)
     });
-    let a2 = area.clone();
+    let a2 = Arc::clone(&area);
     let w2 = window.clone();
     window.connect_button_release_event(move |_w, e| {
         if let Ok(mut a) = a2.lock() {
