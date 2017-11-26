@@ -9,14 +9,13 @@ mod palette;
 
 use basicfractals::{Fractal, Julia, Mandelbrot};
 use cairo::Context;
-use gdk::{BUTTON1_MASK, BUTTON2_MASK, BUTTON3_MASK};
 use gdk::enums::key;
 use gdk::prelude::ContextExt;
 use gdk_pixbuf::{Colorspace, Pixbuf};
 use gtk::ContainerExt;
 use gtk::Inhibit;
 use gtk::WidgetExt;
-use gtk::WindowExt;
+use gtk::GtkWindowExt;
 use num::Zero;
 use num::complex::{Complex, Complex64};
 use palette::Palette;
@@ -333,13 +332,12 @@ fn main() {
         if let Ok(mut a) = a2.lock() {
             let (x, y) = e.get_position();
             let z = a.get_xform().xformf(x, y);
-            let state = e.get_state();
-            println!("Got b button release: {:?} {}", state, state.bits());
-            println!("{:?} at {}", e.get_event_type(), z);
-            match state {
-                BUTTON1_MASK => a.zoom(z, 0.5),
-                BUTTON2_MASK => a.julia(z),
-                BUTTON3_MASK => a.zoom(z, 2.0),
+            let button = e.get_button();
+            println!("Got a button {} release at {}", button, z);
+            match button {
+                1 => a.zoom(z, 0.5),
+                2 => a.julia(z),
+                3 => a.zoom(z, 2.0),
                 _ => (),
             }
             w2.set_title(&a.get_title());
