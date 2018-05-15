@@ -11,7 +11,7 @@ use basicfractals::{Fractal, Julia, Mandelbrot};
 use cairo::Context;
 use gdk::enums::key;
 use gdk::prelude::ContextExt;
-use gdk_pixbuf::{Colorspace, Pixbuf};
+use gdk_pixbuf::{Colorspace, Pixbuf, PixbufExt};
 use gtk::ContainerExt;
 use gtk::Inhibit;
 use gtk::WidgetExt;
@@ -24,8 +24,6 @@ use std::fmt;
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
-
-const GTK_COLORSPACE_RGB: Colorspace = 0; // TODO Import somewhere?
 
 struct Transform {
     o: Complex64,
@@ -110,10 +108,7 @@ impl FractalRendering {
             xpos: 0,
             ypos: 0,
             receiver: rx,
-            image: unsafe {
-                    Pixbuf::new(GTK_COLORSPACE_RGB, false, 8, width, height)
-                }
-                .unwrap(),
+            image: Pixbuf::new(Colorspace::Rgb, false, 8, width, height),
         }
     }
     /// Receive rendered pixels into the image.
